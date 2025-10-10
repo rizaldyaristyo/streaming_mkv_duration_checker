@@ -13,35 +13,35 @@ def _find_element(data: bytes, element_id: bytes, maxlen=8):
         signed=False,
     )
 
-def _get_timecode_scale(path: Path, head_size=1024*64) -> int:
+def _get_timecode_scale(path: Path, head_size=64 * 1024) -> int:
     with open(path, "rb") as f:
         data = f.read(head_size)
     val = _find_element(data, b"\x2A\xD7\xB1")
     return val if val else 1_000_000
 
-def _get_last_cluster_timecode(path: Path, tail_size=1024*1024) -> int | None:
+def _get_last_cluster_timecode(path: Path, tail_size=1024 * 1024) -> int | None:
     CLUSTER_ID = b"\x1F\x43\xB6\x75"
     TIMECODE_ID = b"\xE7"
+
     with open(path, "rb") as f:
         f.seek(0, 2)
         filesize = f.tell()
         read_size = min(tail_size, filesize)
         f.seek(filesize - read_size)
         data = f.read()
-    last_tc = None
-    i = 0
-    while i < len(data):
-        if data[i:i+4] == CLUSTER_ID:
-            sub = data[i:i+512]
-            j = sub.find(TIMECODE_ID)
-            if j != -1 and j + 3 < len(sub):
-                size = sub[j+1] & 0x7F
-                val = int.from_bytes(sub[j+2:j+2+size], "big")
-                last_tc = val
-            i += 4
-        else:
-            i += 1
-    return last_tc
+
+    pos = data.rfind(CLUSTER_ID)
+    if pos == -1:
+        return None
+
+    search_window = data[pos : pos + 512]
+    j = search_window.find(TIMECODE_ID)
+    if j == -1 or j + 3 >= len(search_window):
+        return None
+
+    size = search_window[j + 1] & 0x7F
+    return int.from_bytes(search_window[j + 2 : j + 2 + size], "big")
+
 
 def get_mkv_duration(path: str | Path) -> float | None:
     path = Path(path)
@@ -52,6 +52,10 @@ def get_mkv_duration(path: str | Path) -> float | None:
     return timecode * scale / 1e9
 
 if __name__ == "__main__":
-    mkv = "recording_2025-10-06_10-03-41.mkv"
-    dur = get_mkv_duration(mkv)
-    print(f"Duration so far: {dur:.3f} s" if dur else "No clusters found.")
+    import time
+    mkv = "recording_2025-10-09_16-45-19.mkv"
+    start_time = time.time()
+    for _ in range(40):
+        dur = get_mkv_duration(mkv)
+        print(f"Duration so far: {dur:.3f} s" if dur else "No clusters found.")
+    print(f"Total time: {time.time() - start_time:.3f} s")
